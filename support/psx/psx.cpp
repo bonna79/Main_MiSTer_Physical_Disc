@@ -395,7 +395,7 @@ static int load_phys(toc_t *table)
 	// The scan is still used for mid-game disc swaps (psx_swap_apply).
 	// Set PSX_PHYS_BOOT_PREGAP_SCAN to 1 to restore the old, slow behaviour.
 #ifndef PSX_PHYS_BOOT_PREGAP_SCAN
-#define PSX_PHYS_BOOT_PREGAP_SCAN 0
+#define PSX_PHYS_BOOT_PREGAP_SCAN 1
 #endif
 #if PSX_PHYS_BOOT_PREGAP_SCAN
 	physical_disc_psx_enrich_toc(table);
