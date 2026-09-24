@@ -2097,6 +2097,61 @@ void physical_disc_forget_disc(void)
 	}
 }
 
+/*
+ * Real Subchannel Q support (PSX real-subq).
+ * Non-blocking: only looks into the ring filled by the normal sector reads, never touches
+ * the drive, so it can be called from the SPI path right before a sector is sent to the core.
+ */
+int physical_disc_peek_sub(int lba, uint8_t *sub96)
+{
+	if (drv.dev_fd < 0 || !drv.ring || drv.mid_swap || lba < 0 || lba >= drv.leadout_lba) return 0;
+
+	int ok = 0;
+	pthread_mutex_lock(&drv.ring_lock);
+	cache_entry_t *e = entry_for(lba);
+	if (e->lba == lba && e->sub_present && !e->unreadable)
+	{
+		memcpy(sub96, e->data + PHYSICAL_DISC_RAW, PHYSICAL_DISC_SUB);
+		ok = 1;
+	}
+	pthread_mutex_unlock(&drv.ring_lock);
+	return ok;
+}
+
+int physical_disc_subq_capable(void)
+{
+	return drv.dev_fd >= 0 && drv.subch_ok == 1;
+}
+
+/* READ TOC/PMA/ATIP format 0010b (full TOC): the Q entries of the lead-in, used by GetQ (1Dh). */
+int physical_disc_read_full_toc(uint8_t *dst, int maxlen)
+{
+	if (drv.dev_fd < 0 || maxlen < 4) return -1;
+
+	uint8_t cdb[10] = { 0x43, 0x02, 0x02, 0, 0, 0, 1, (uint8_t)(maxlen >> 8), (uint8_t)maxlen, 0 };
+	uint8_t sense[32];
+	struct sg_io_hdr io;
+	memset(&io, 0, sizeof(io));
+	memset(dst, 0, maxlen);
+	io.interface_id = 'S';
+	io.cmd_len = sizeof(cdb);
+	io.cmdp = cdb;
+	io.dxfer_direction = SG_DXFER_FROM_DEV;
+	io.dxfer_len = maxlen;
+	io.dxferp = dst;
+	io.sbp = sense;
+	io.mx_sb_len = sizeof(sense);
+	io.timeout = BG_IO_TIMEOUT_MS;
+
+	pthread_mutex_lock(&drv.io_lock);
+	int r = ioctl(drv.dev_fd, SG_IO, &io);
+	pthread_mutex_unlock(&drv.io_lock);
+	if (r < 0 || io.status || io.host_status || io.driver_status) return -1;
+
+	int len = ((dst[0] << 8) | dst[1]) + 2;
+	return len > maxlen ? maxlen : len;
+}
+
 void physical_disc_close()
 {
 	if (drv.dev_fd < 0) return;

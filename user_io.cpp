@@ -3458,6 +3458,9 @@ void user_io_poll()
 					done = 1;
 				}
 
+				// PSX real-subq: the Q of this sector goes to the core right before its data
+				if (blksz == 2352 && is_psx()) psx_subq_on_sector((uint32_t)lba);
+
 				// data is now stored in buffer. send it to fpga
 				EnableIO();
 				spi_w(UIO_SECTOR_RD | ack);

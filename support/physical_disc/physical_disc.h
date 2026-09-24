@@ -206,6 +206,13 @@ int physical_disc_menu_status(char *name, int namesz, physical_disc_disc_t *type
 
 int physical_disc_menu_dirty(void);
 
+// Real Subchannel Q (PSX real-subq): raw P-W (96 bytes) of a sector already in the read-ahead
+// ring, without any drive access. Returns 1 if available.
+int physical_disc_peek_sub(int lba, uint8_t *sub96);
+int physical_disc_subq_capable(void);
+// Full TOC (READ TOC format 2) for GetQ. Returns number of bytes (incl. 4 byte header) or -1.
+int physical_disc_read_full_toc(uint8_t *dst, int maxlen);
+
 void physical_disc_close();
 
 #endif

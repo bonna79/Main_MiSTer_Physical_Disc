@@ -11,6 +11,7 @@
 #include "../../hardware.h"
 #include "../../menu.h"
 #include "psx.h"
+#include "psx_subq.h"
 #include "mcdheader.h"
 #include "../../cd.h"
 #include "../chd/mister_chd.h"
@@ -473,6 +474,7 @@ static void send_cue_and_metadata(toc_t *table, uint16_t libcrypt_mask, enum reg
 		disk->libcrypt_mask = libcrypt_mask;
 		disk->metadata = region; // the lower 2 bits of metadata contain the region
 		if (reset) disk->metadata |= 4; // 3rd bit is reset request
+		if (psx_subq_enabled()) disk->metadata |= 8; // 4th bit: HPS delivers real Subchannel Q (ignored by cores without real-subq)
 		disk->track_count = (BCD(table->last) << 8) | table->last;
 		disk->total_lba = table->end;
 		int m = (disk->total_lba / 75) / 60;
@@ -904,11 +906,11 @@ int psx_mount_cd(int f_index, int s_index, const char *filename)
 			}
 
 			uint16_t mask = 0;
+			fileTYPE sbi_file = {};
+			bool has_sbi_file = false;
 
 			if (!audio_only)
 			{
-				fileTYPE sbi_file = {};
-				bool has_sbi_file = false;
 			// search for .sbi file in PSX/sbi.zip
 				sprintf(buf, "%s/sbi.zip/%s.sbi", HomeDir(), game_id);
 				has_sbi_file = FileOpen(&sbi_file, buf, 1);
@@ -929,6 +931,10 @@ int psx_mount_cd(int f_index, int s_index, const char *filename)
 
 				process_ss(name, name_len != 0);
 			}
+			// real Subchannel Q: source selection, SBI frames and GetQ lead-in
+			psx_subq_setup(&toc, phys, phys ? NULL : filename, has_sbi_file ? &sbi_file : NULL);
+			if (has_sbi_file) FileClose(&sbi_file);
+
 			psx_boot_hold(0); // disc is ready: let the core start (no-op unless held)
 			send_cue_and_metadata(&toc, mask, region, reset);
 
@@ -945,6 +951,7 @@ int psx_mount_cd(int f_index, int s_index, const char *filename)
 	if (!loaded)
 	{
 		printf("Unmount CD\n");
+		psx_subq_reset();
 		physical_disc_swap_enable(0);
 		if (toc.phys) unload_phys(&toc);
 		unload_cue(&toc);
@@ -980,6 +987,7 @@ static void psx_swap_apply()
 
 
 	printf("PSX: disc swap -> region %s\n", region_string(region));
+	psx_subq_setup(&toc, 1, NULL, NULL);
 	send_cue_and_metadata(&toc, 0, region, 0);
 	user_io_set_index(s_swap_fidx);
 	mount_cd(toc.end * CD_SECTOR_LEN, s_swap_sidx);
@@ -1022,7 +1030,7 @@ void psx_poll()
 		}
 	}
 
-	spi_uio_cmd(UIO_CD_GET);
+	psx_subq_poll(); // CD_GET: heartbeat + real Subchannel Q requests of the core
 }
 
 void psx_reset()

@@ -61,6 +61,7 @@
 
 // PSX support
 #include "support/psx/psx.h"
+#include "support/psx/psx_subq.h"
 
 // CD-i support
 #include "support/cdi/cdi.h"
