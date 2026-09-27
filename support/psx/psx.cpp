@@ -620,6 +620,10 @@ void psx_read_cd(uint8_t *buffer, int lba, int cnt)
 
 							// The "fake" 150 sector pregap moves all the LBAs up by 150, so adjust here to read where the core actually wants data from
 							int read_lba = lba - toc.tracks[0].indexes[1];
+							int chd_lba = read_lba + toc.tracks[i].offset;
+							const chd_header *chd_h = chd_get_header(toc.chd_f);
+							if (chd_h && chd_h->unitbytes && chd_lba >= 0)
+								psx_subq_chd_take(chd_lba / (int)(chd_h->hunkbytes / chd_h->unitbytes), &chd_hunkbuf, &chd_hunknum);
 							int prev_hunk = chd_hunknum;
 							if (mister_chd_read_sector(toc.chd_f, (read_lba + toc.tracks[i].offset), 0, 0, CD_SECTOR_LEN, buffer, chd_hunkbuf, &chd_hunknum) == CHDERR_NONE)
 							{

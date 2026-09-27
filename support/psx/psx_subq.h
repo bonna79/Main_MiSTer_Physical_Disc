@@ -36,6 +36,10 @@ int  psx_subq_get(int frame, uint8_t *q);
 // CHD: a hunk was decompressed by the data path, keep its subcode (hunkbuf = whole hunk)
 void psx_subq_chd_hunk(int hunk, const uint8_t *hunkbuf);
 
+// CHD: before the data path decompresses hunk, take it from the Q path if that already has it
+// (buffers are swapped, so a hunk is never decompressed twice)
+void psx_subq_chd_take(int hunk, uint8_t **hunkbuf, int *hunknum);
+
 // called by user_io right before a sector requested by the core is sent
 void psx_subq_on_sector(uint32_t lba);
 

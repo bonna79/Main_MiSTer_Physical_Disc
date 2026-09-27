@@ -164,24 +164,35 @@ int main()
 		ct.tracks[0].sbc_type = SUBCODE_RW;
 		g_chd_ok = 1;
 		psx_subq_setup(&ct, 0, NULL, NULL);
-		std::vector<uint8_t> hb(8 * CD_FRAME_SIZE); int hn = -1; uint8_t sec[2352];
+		// like user_io: the data path fills batches of 8 sectors starting anywhere (not hunk aligned),
+		// the Q of lba+2 is sent before each sector, GetLocP asks the Q at lba
+		uint8_t *hb = (uint8_t *)malloc(8 * CD_FRAME_SIZE); int hn = -1; uint8_t sec[2352];
 		g_chd_decomp = 0;
-		int bad = 0, sub_decomp = 0;
-		for (int lba = 13900; lba < 14300; lba++)
+		int bad = 0, batch_lba = -100;
+		const int first = 13901, last = 14301;
+		for (int lba = first; lba < last; lba++)
 		{
-			// data path reads ahead (like user_io's buffer), then the Q of lba+2 is sent
-			int prev = hn;
-			mister_chd_read_sector(NULL, lba + 16, 0, 0, 2352, sec, hb.data(), &hn);
-			if (hn != prev) psx_subq_chd_hunk(hn, hb.data());
-			int before = g_chd_decomp;
+			if (lba >= batch_lba + 8)
+			{
+				batch_lba = lba;
+				for (int k = 0; k < 8; k++)
+				{
+					psx_subq_chd_take((lba + k) / 8, &hb, &hn);
+					int prev = hn;
+					mister_chd_read_sector(NULL, lba + k, 0, 0, 2352, sec, hb, &hn);
+					if (hn != prev) psx_subq_chd_hunk(hn, hb);
+				}
+			}
 			uint8_t qq[12], exp[12];
 			int st = psx_subq_get(lba + 150 + 2, qq);
 			model_q(lba + 2, exp);
 			if (!(st & PSX_SUBQ_ST_PRESENT) || memcmp(qq, exp, 12)) bad++;
-			// GetLocP at the current position between sectors
-			psx_subq_get(lba + 150, qq);
-			sub_decomp += g_chd_decomp - before;
+			psx_subq_get(lba + 150, qq); // GetLocP
 		}
+		int hunks = (last + 1) / 8 - first / 8 + 1;
+		int sub_decomp = g_chd_decomp - hunks;
+		printf("CHD: %d decompressions for %d hunks\n", g_chd_decomp, hunks);
+		free(hb);
 		CHECK(bad == 0, "CHD: Q of every frame correct (LibCrypt frames included)");
 		printf("CHD: decompressions for the Q: %d (data path: %d)\n", sub_decomp, g_chd_decomp - sub_decomp);
 		CHECK(sub_decomp <= 2, "CHD: Q served from the data path hunks, no second decompression");
