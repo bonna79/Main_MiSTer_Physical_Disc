@@ -273,6 +273,13 @@ void psx_subq_chd_hunk(int hunk, const uint8_t *hunkbuf)
 	s_chd_subhunk[slot] = hunk;
 }
 
+void psx_subq_chd_prefetch(int frame)
+{
+	if (!s_enabled || !s_chd_sub || !s_toc || !s_toc->chd_f) return;
+	uint8_t q[12];
+	get_q_chd(frame, q);
+}
+
 void psx_subq_chd_take(int hunk, uint8_t **hunkbuf, int *hunknum)
 {
 	if (!s_chd_hunk || hunk < 0 || s_chd_hunknum != hunk || *hunknum == hunk) return;

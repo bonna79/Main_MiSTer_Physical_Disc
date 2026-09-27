@@ -168,7 +168,7 @@ int main()
 		// the Q of lba+2 is sent before each sector, GetLocP asks the Q at lba
 		uint8_t *hb = (uint8_t *)malloc(8 * CD_FRAME_SIZE); int hn = -1; uint8_t sec[2352];
 		g_chd_decomp = 0;
-		int bad = 0, batch_lba = -100;
+		int bad = 0, batch_lba = -100, late = 0;
 		const int first = 13901, last = 14301;
 		for (int lba = first; lba < last; lba++)
 		{
@@ -182,9 +182,13 @@ int main()
 					mister_chd_read_sector(NULL, lba + k, 0, 0, 2352, sec, hb, &hn);
 					if (hn != prev) psx_subq_chd_hunk(hn, hb);
 				}
+				psx_subq_chd_prefetch(lba + 8 + 150);
+				psx_subq_chd_prefetch(lba + 9 + 150);
 			}
 			uint8_t qq[12], exp[12];
+			int before_q = g_chd_decomp;
 			int st = psx_subq_get(lba + 150 + 2, qq);
+			late += g_chd_decomp - before_q;
 			model_q(lba + 2, exp);
 			if (!(st & PSX_SUBQ_ST_PRESENT) || memcmp(qq, exp, 12)) bad++;
 			psx_subq_get(lba + 150, qq); // GetLocP
@@ -193,6 +197,7 @@ int main()
 		int sub_decomp = g_chd_decomp - hunks;
 		printf("CHD: %d decompressions for %d hunks\n", g_chd_decomp, hunks);
 		free(hb);
+		CHECK(late == 0, "CHD: no decompression right before a sector is sent");
 		CHECK(bad == 0, "CHD: Q of every frame correct (LibCrypt frames included)");
 		printf("CHD: decompressions for the Q: %d (data path: %d)\n", sub_decomp, g_chd_decomp - sub_decomp);
 		CHECK(sub_decomp <= 2, "CHD: Q served from the data path hunks, no second decompression");

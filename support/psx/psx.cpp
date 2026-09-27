@@ -560,7 +560,23 @@ int psx_chd_hunksize()
 }
 
 
+static void psx_read_cd_sectors(uint8_t *buffer, int lba, int cnt);
+
 void psx_read_cd(uint8_t *buffer, int lba, int cnt)
+{
+	psx_read_cd_sectors(buffer, lba, cnt);
+
+	// real-subq on CHD: the Q sent with the last sectors of this batch belongs to frames
+	// lba+cnt and lba+cnt+1 (Q runs two frames ahead of the data). Decompress their hunk now,
+	// while the core consumes the batch, instead of right before a sector must be sent.
+	if (toc.chd_f && cnt > 0)
+	{
+		psx_subq_chd_prefetch(lba + cnt);
+		psx_subq_chd_prefetch(lba + cnt + 1);
+	}
+}
+
+static void psx_read_cd_sectors(uint8_t *buffer, int lba, int cnt)
 {
 	//printf("req lba=%d, cnt=%d\n", lba, cnt);
 
