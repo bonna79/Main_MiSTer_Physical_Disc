@@ -26,7 +26,21 @@ int FileSeek(fileTYPE *, __off64_t, int) { return 0; }
 static const uint8_t *g_sbi = NULL; static int g_sbi_len = 0, g_sbi_pos = 0;
 int FileReadAdv(fileTYPE *, void *b, int len, int) { int n = g_sbi_len - g_sbi_pos; if (n > len) n = len; if (n < 0) n = 0; memcpy(b, g_sbi + g_sbi_pos, n); g_sbi_pos += n; return n; }
 #include "../support/chd/mister_chd.h"
-chd_error mister_chd_read_sector(chd_file *, int, uint32_t, uint32_t, int, uint8_t *, uint8_t *, int *) { return CHDERR_READ_ERROR; }
+// CHD model: 8 frames per hunk, subcode = cooked Q of the frame (lba + 150), counts decompressions
+static int g_chd_ok = 0, g_chd_decomp = 0;
+static void model_q(int lba, uint8_t *q);
+static void chd_fill_hunk(int hunk, uint8_t *hb)
+{
+	memset(hb, 0, 8 * CD_FRAME_SIZE);
+	for (int k = 0; k < 8; k++) { uint8_t q[12]; model_q(hunk * 8 + k, q); memcpy(hb + k * CD_FRAME_SIZE + CD_MAX_SECTOR_DATA + 12, q, 12); }
+}
+chd_error mister_chd_read_sector(chd_file *, int lba, uint32_t d, uint32_t s, int len, uint8_t *dst, uint8_t *hb, int *hn)
+{
+	if (!g_chd_ok) return CHDERR_READ_ERROR;
+	if (lba / 8 != *hn) { chd_fill_hunk(lba / 8, hb); *hn = lba / 8; g_chd_decomp++; }
+	memcpy(dst + d, hb + (lba % 8) * CD_FRAME_SIZE + s, len);
+	return CHDERR_NONE;
+}
 
 // physical disc model: ring holds raw P-W for [ring_lo, ring_hi), Q of lba x stored at x - drive_offset
 static int ring_lo = 0, ring_hi = 0, drive_offset = 0;
@@ -141,6 +155,41 @@ int main()
 
 	psx_subq_reset();
 	CHECK(!psx_subq_enabled() && psx_subq_get(14100, q) == 0, "reset: disabled");
+
+	// CHD with subcode: Q comes from the hunks the data path already decompressed
+	{
+		toc_t ct = {};
+		ct.last = 1; ct.end = 60 * 60 * 75; ct.chd_f = (chd_file *)1; ct.chd_hunksize = 8 * CD_FRAME_SIZE;
+		ct.tracks[0].start = 150; ct.tracks[0].end = ct.end - 1; ct.tracks[0].type = TT_MODE2; ct.tracks[0].indexes[1] = 150;
+		ct.tracks[0].sbc_type = SUBCODE_RW;
+		g_chd_ok = 1;
+		psx_subq_setup(&ct, 0, NULL, NULL);
+		std::vector<uint8_t> hb(8 * CD_FRAME_SIZE); int hn = -1; uint8_t sec[2352];
+		g_chd_decomp = 0;
+		int bad = 0, sub_decomp = 0;
+		for (int lba = 13900; lba < 14300; lba++)
+		{
+			// data path reads ahead (like user_io's buffer), then the Q of lba+2 is sent
+			int prev = hn;
+			mister_chd_read_sector(NULL, lba + 16, 0, 0, 2352, sec, hb.data(), &hn);
+			if (hn != prev) psx_subq_chd_hunk(hn, hb.data());
+			int before = g_chd_decomp;
+			uint8_t qq[12], exp[12];
+			int st = psx_subq_get(lba + 150 + 2, qq);
+			model_q(lba + 2, exp);
+			if (!(st & PSX_SUBQ_ST_PRESENT) || memcmp(qq, exp, 12)) bad++;
+			// GetLocP at the current position between sectors
+			psx_subq_get(lba + 150, qq);
+			sub_decomp += g_chd_decomp - before;
+		}
+		CHECK(bad == 0, "CHD: Q of every frame correct (LibCrypt frames included)");
+		printf("CHD: decompressions for the Q: %d (data path: %d)\n", sub_decomp, g_chd_decomp - sub_decomp);
+		CHECK(sub_decomp <= 2, "CHD: Q served from the data path hunks, no second decompression");
+		uint8_t q2[12];
+		CHECK(psx_subq_get(200000 + 150, q2) & PSX_SUBQ_ST_PRESENT, "CHD: Q far from the data path is decompressed on demand");
+		psx_subq_reset();
+		g_chd_ok = 0;
+	}
 
 	printf(fails ? "%d TESTS FAILED\n" : "ALL TESTS PASSED\n", fails);
 	return fails != 0;

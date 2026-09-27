@@ -33,6 +33,9 @@ int  psx_subq_enabled(void);
 // Q for an absolute frame (MSF frame number, i.e. LBA + 150). Returns status bits, q[12] filled.
 int  psx_subq_get(int frame, uint8_t *q);
 
+// CHD: a hunk was decompressed by the data path, keep its subcode (hunkbuf = whole hunk)
+void psx_subq_chd_hunk(int hunk, const uint8_t *hunkbuf);
+
 // called by user_io right before a sector requested by the core is sent
 void psx_subq_on_sector(uint32_t lba);
 

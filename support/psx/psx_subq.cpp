@@ -46,6 +46,14 @@ static int             s_sub_frames = 0;
 static uint8_t        *s_chd_hunk = NULL;
 static int             s_chd_hunknum = -1;
 
+// CHD: subcode of the recently decompressed hunks. The Q is asked for every sector (two
+// frames ahead of the data) and for GetLocP at the current position: without this cache the
+// same hunk would be decompressed again for the Q, often several times per sector.
+#define CHD_SUBCACHE 32
+static uint8_t        *s_chd_sub = NULL;   // CHD_SUBCACHE * frames per hunk * 96
+static int             s_chd_subhunk[CHD_SUBCACHE];
+static int             s_chd_fph = 0;      // frames per hunk
+
 static sbi_entry_t     s_sbi[128];
 static int             s_nsbi = 0;
 
@@ -210,9 +218,18 @@ static int get_q_chd(int frame, uint8_t *q)
 	// same mapping as psx_read_cd(): fake pregap sectors are not in the file
 	if (s_toc->tracks[i + 1].pregap && frame > (s_toc->tracks[i + 1].start - s_toc->tracks[i + 1].indexes[1])) return 0;
 
-	uint8_t sub[96];
 	int lba = frame - s_toc->tracks[0].indexes[1] + s_toc->tracks[i].offset;
-	if (mister_chd_read_sector(s_toc->chd_f, lba, 0, 2352, 96, sub, s_chd_hunk, &s_chd_hunknum) != CHDERR_NONE) return 0;
+	if (lba < 0) return 0;
+	int hunk = lba / s_chd_fph, slot = hunk % CHD_SUBCACHE;
+	if (s_chd_subhunk[slot] != hunk)
+	{
+		// not decompressed by the data path yet: decompress it here, once
+		uint8_t dummy;
+		if (mister_chd_read_sector(s_toc->chd_f, lba, 0, 0, 0, &dummy, s_chd_hunk, &s_chd_hunknum) != CHDERR_NONE) return 0;
+		psx_subq_chd_hunk(hunk, s_chd_hunk);
+		if (s_chd_subhunk[slot] != hunk) return 0;
+	}
+	const uint8_t *sub = s_chd_sub + ((size_t)slot * s_chd_fph + lba % s_chd_fph) * 96;
 
 	q_from_sub(sub, q, s_toc->tracks[i].sbc_type == SUBCODE_RW_RAW);
 	return st_of(q);
@@ -245,6 +262,15 @@ static int get_q_sbi(int frame, uint8_t *q)
 		}
 	}
 	return 0;
+}
+
+void psx_subq_chd_hunk(int hunk, const uint8_t *hunkbuf)
+{
+	if (!s_chd_sub || hunk < 0 || !hunkbuf) return;
+	int slot = hunk % CHD_SUBCACHE;
+	uint8_t *dst = s_chd_sub + (size_t)slot * s_chd_fph * 96;
+	for (int k = 0; k < s_chd_fph; k++) memcpy(dst + k * 96, hunkbuf + k * CD_FRAME_SIZE + CD_MAX_SECTOR_DATA, 96);
+	s_chd_subhunk[slot] = hunk;
 }
 
 int psx_subq_get(int frame, uint8_t *q)
@@ -387,6 +413,9 @@ void psx_subq_reset(void)
 	if (s_chd_hunk) free(s_chd_hunk);
 	s_chd_hunk = NULL;
 	s_chd_hunknum = -1;
+	if (s_chd_sub) free(s_chd_sub);
+	s_chd_sub = NULL;
+	s_chd_fph = 0;
 	s_toc = NULL;
 	s_enabled = 0;
 	s_phys = 0;
@@ -419,9 +448,17 @@ void psx_subq_setup(toc_t *toc, int phys, const char *image, fileTYPE *sbi)
 		for (int i = 0; i < toc->last; i++) if (toc->tracks[i].sbc_type != SUBCODE_NONE) has_sub = 1;
 		if (has_sub)
 		{
+			s_chd_fph = toc->chd_hunksize / CD_FRAME_SIZE;
 			s_chd_hunk = (uint8_t *)malloc(toc->chd_hunksize);
 			s_chd_hunknum = -1;
-			if (s_chd_hunk) src = "CHD subcode";
+			s_chd_sub = s_chd_fph > 0 ? (uint8_t *)malloc((size_t)CHD_SUBCACHE * s_chd_fph * 96) : NULL;
+			for (int k = 0; k < CHD_SUBCACHE; k++) s_chd_subhunk[k] = -1;
+			if (s_chd_hunk && s_chd_sub) src = "CHD subcode";
+			else
+			{
+				free(s_chd_hunk); s_chd_hunk = NULL;
+				free(s_chd_sub); s_chd_sub = NULL;
+			}
 		}
 	}
 	else if (image)

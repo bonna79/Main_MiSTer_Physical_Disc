@@ -620,8 +620,11 @@ void psx_read_cd(uint8_t *buffer, int lba, int cnt)
 
 							// The "fake" 150 sector pregap moves all the LBAs up by 150, so adjust here to read where the core actually wants data from
 							int read_lba = lba - toc.tracks[0].indexes[1];
+							int prev_hunk = chd_hunknum;
 							if (mister_chd_read_sector(toc.chd_f, (read_lba + toc.tracks[i].offset), 0, 0, CD_SECTOR_LEN, buffer, chd_hunkbuf, &chd_hunknum) == CHDERR_NONE)
 							{
+								if (chd_hunknum != prev_hunk) psx_subq_chd_hunk(chd_hunknum, chd_hunkbuf); // real-subq: Q without a second decompression
+
 								if (!toc.tracks[i].type) //CHD requires byteswap of audio data
 								{
 									for (int swapidx = 0; swapidx < CD_SECTOR_LEN; swapidx += 2)
