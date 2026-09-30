@@ -891,6 +891,25 @@ static int scsi_read_raw_subq_block(int lba, int count, uint8_t *sub)
 /* Raw P-W subchannel only (no sector data) of count sectors from lba, for the
  * PSX LibCrypt key (support/psx/psx_libcrypt.cpp). Returns 0 on success.
  */
+// TEST: one READ CD (sync+header+data+EDC) straight from the drive, bypassing
+// the ring; dst must hold PHYSICAL_DISC_RAW + PHYSICAL_DISC_SUB bytes
+int physical_disc_debug_read(int lba, int with_sub, uint8_t *dst)
+{
+	if (drv.dev_fd < 0) return -9;
+	pthread_mutex_lock(&drv.io_lock);
+	int r = scsi_read_cd(lba, 1, 0xF8, with_sub, dst, BG_IO_TIMEOUT_MS);
+	pthread_mutex_unlock(&drv.io_lock);
+	return r;
+}
+
+// TEST: forget every sector kept in the ring, so the next reads go to the drive
+void physical_disc_drop_cache(void)
+{
+	pthread_mutex_lock(&drv.ring_lock);
+	for (int i = 0; i < RING_SECTORS; i++) drv.ring[i].lba = -1;
+	pthread_mutex_unlock(&drv.ring_lock);
+}
+
 int physical_disc_read_subq_window(int lba, int count, uint8_t *raw96)
 {
 	if (drv.dev_fd < 0 || drv.mid_swap || lba < 0 || count <= 0 || count > 64) return -1;

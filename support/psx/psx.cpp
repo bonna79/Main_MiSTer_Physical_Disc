@@ -709,8 +709,8 @@ static region_t psx_get_region()
 			return region_t::EU;
 	}
 
-	printf("PSX: licence sector %d not recognised: %02X %02X %02X %02X ... %02X %02X %02X %02X\n", license_sector,
-		buffer[0], buffer[1], buffer[2], buffer[3], buffer[24], buffer[25], buffer[26], buffer[27]);
+	printf("PSX: licence sector %d not recognised: hdr %02X %02X %02X %02X mode %02X data %02X %02X %02X %02X\n", license_sector,
+		buffer[12], buffer[13], buffer[14], buffer[15], buffer[18], buffer[24], buffer[25], buffer[26], buffer[27]);
 	return region_t::UNKNOWN;
 }
 
@@ -935,6 +935,21 @@ static void psx_phys_wait_data()
 			if (tries) printf("PSX: disc data readable after %lu ms\n", GetTimer(0) - t0);
 			return;
 		}
+		if (tries < 3 || tries % 10 == 0)
+		{
+			// TEST: what the ring gives, and what the drive gives now
+			static uint8_t raw[2352 + 96];
+			int r0 = physical_disc_read_sector(16, raw, NULL);
+			printf("PSX: try %d ring  r=%d hdr %02X %02X %02X %02X mode %02X data %02X %02X %02X %02X %02X %02X\n", tries, r0,
+				raw[12], raw[13], raw[14], raw[15], raw[18], raw[24], raw[25], raw[26], raw[27], raw[28], raw[29]);
+			int r1 = physical_disc_debug_read(16, 0, raw);
+			printf("PSX: try %d fresh r=%d hdr %02X %02X %02X %02X mode %02X data %02X %02X %02X %02X %02X %02X\n", tries, r1,
+				raw[12], raw[13], raw[14], raw[15], raw[18], raw[24], raw[25], raw[26], raw[27], raw[28], raw[29]);
+			int r2 = physical_disc_debug_read(16, 1, raw);
+			printf("PSX: try %d f+sub r=%d hdr %02X %02X %02X %02X mode %02X data %02X %02X %02X %02X %02X %02X\n", tries, r2,
+				raw[12], raw[13], raw[14], raw[15], raw[18], raw[24], raw[25], raw[26], raw[27], raw[28], raw[29]);
+		}
+		physical_disc_drop_cache(); // TEST: next try reads the drive again
 		tries++;
 		if (CheckTimer(giveup))
 		{
