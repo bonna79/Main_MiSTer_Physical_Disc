@@ -908,43 +908,70 @@ static void debug_dump16(const char *what, int r, const uint8_t *raw)
 		raw[12], raw[13], raw[14], raw[15], raw[18], raw[24], raw[25], raw[26], raw[27], raw[28], raw[29]);
 }
 
+static int debug_sg(uint8_t *cdb, int cdb_len, uint8_t *buf, int len, int timeout_ms)
+{
+	uint8_t sense[32];
+	struct sg_io_hdr io;
+	memset(&io, 0, sizeof(io));
+	io.interface_id = 'S';
+	io.cmd_len = cdb_len;
+	io.cmdp = cdb;
+	io.dxfer_direction = len ? SG_DXFER_FROM_DEV : SG_DXFER_NONE;
+	io.dxfer_len = len;
+	io.dxferp = buf;
+	io.sbp = sense;
+	io.mx_sb_len = sizeof(sense);
+	io.timeout = timeout_ms;
+	if (ioctl(drv.dev_fd, SG_IO, &io) < 0) return -1;
+	if (io.status || io.host_status || io.driver_status)
+		return -(0x100 | ((sense[2] & 0x0F) << 16) | (sense[12] << 8) | sense[13]);
+	return 0;
+}
+
 // TEST: try one way to get good data back from the drive, then read LBA 16
 void physical_disc_debug_recover(int step)
 {
 	static uint8_t raw[ENTRY_SIZE];
 	if (drv.dev_fd < 0) return;
 	memset(raw, 0, sizeof(raw));
+	pthread_mutex_lock(&drv.io_lock);
 
 	if (step == 0) {
-		// block layer READ(10), 2048-byte sectors, through a second descriptor
-		int fd = open(active_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-		int r = -9;
-		if (fd >= 0) {
-			r = (pread(fd, raw + 24, 2048, 16 * 2048) == 2048) ? 0 : -errno;
-			close(fd);
-		}
-		debug_dump16("cooked", r, raw);
+		// READ CD expecting Mode 2 Form 1 (the drive must decode it as such)
+		uint8_t cdb[12] = { 0xBE, 0x10, 0, 0, 0, 16, 0, 0, 1, 0xF8, 0, 0 };
+		int r = debug_sg(cdb, 12, raw, PHYSICAL_DISC_RAW, BG_IO_TIMEOUT_MS);
+		pthread_mutex_unlock(&drv.io_lock);
+		debug_dump16("m2f1", r, raw);
 		return;
 	}
-
-	pthread_mutex_lock(&drv.io_lock);
-	const char *what = "?";
 	if (step == 1) {
-		what = "far+16";
-		scsi_read_cd(200000, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
-	} else if (step == 2) {
-		what = "speed+16";
-		ioctl(drv.dev_fd, CDROM_SELECT_SPEED, 0);
-	} else if (step == 3) {
-		what = "reopen+16";
-		int fd = open(active_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-		if (fd >= 0) { close(drv.dev_fd); drv.dev_fd = fd; }
+		// READ(10) with FUA: from the disc, not from the drive cache
+		uint8_t cdb[10] = { 0x28, 0x08, 0, 0, 0, 16, 0, 0, 1, 0 };
+		int r = debug_sg(cdb, 10, raw + 24, 2048, BG_IO_TIMEOUT_MS);
+		pthread_mutex_unlock(&drv.io_lock);
+		debug_dump16("fua", r, raw);
+		return;
 	}
-	memset(raw, 0, sizeof(raw));
-	int r = scsi_read_cd(16, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+	if (step == 2) {
+		// stop and start the spindle (the drive calibrates on the disc again)
+		uint8_t stop[6] = { 0x1B, 0, 0, 0, 0x00, 0 };
+		uint8_t start[6] = { 0x1B, 0, 0, 0, 0x01, 0 };
+		int r1 = debug_sg(stop, 6, NULL, 0, 20000);
+		usleep(1000000);
+		int r2 = debug_sg(start, 6, NULL, 0, 20000);
+		printf("PSX: spin stop r=%d start r=%d\n", r1, r2);
+		int r = -1;
+		for (int i = 0; i < 25; i++) {
+			memset(raw, 0, sizeof(raw));
+			r = scsi_read_cd(16, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+			if (!r && raw[24] == 1) break;
+			usleep(200000);
+		}
+		pthread_mutex_unlock(&drv.io_lock);
+		debug_dump16("spin+16", r, raw);
+		return;
+	}
 	pthread_mutex_unlock(&drv.io_lock);
-	debug_dump16(what, r, raw);
-	if (step == 2) apply_speed_cap();
 }
 
 // TEST: forget every sector kept in the ring, so the next reads go to the drive
