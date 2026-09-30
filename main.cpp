@@ -84,6 +84,13 @@ int main(int argc, char *argv[])
 
 
 
+	// Test builds: with /media/fat/physical_disc_log.enable present, append
+	// everything the Main prints to /media/fat/physical_disc.log
+	if (!access("/media/fat/physical_disc_log.enable", F_OK) &&
+	    freopen("/media/fat/physical_disc.log", "a", stdout))
+	{
+		dup2(fileno(stdout), fileno(stderr));
+	}
 	setvbuf(stdout, NULL, _IOLBF, 0);
 
 	struct sigaction sa = {};

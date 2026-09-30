@@ -709,6 +709,8 @@ static region_t psx_get_region()
 			return region_t::EU;
 	}
 
+	printf("PSX: licence sector %d not recognised: %02X %02X %02X %02X ... %02X %02X %02X %02X\n", license_sector,
+		buffer[0], buffer[1], buffer[2], buffer[3], buffer[24], buffer[25], buffer[26], buffer[27]);
 	return region_t::UNKNOWN;
 }
 
@@ -962,6 +964,8 @@ int psx_mount_cd(int f_index, int s_index, const char *filename)
 			game_info_t game_info = {};
 			const char* game_id = "";
 			region_t region = region_t::UNKNOWN;
+			printf("PSX: mount %s, %d track(s), track 1 type %d, audio only %d, hot insert %d\n",
+				phys ? "physical disc" : filename, toc.last, toc.tracks[0].type, audio_only, s_hot_insert);
 			if (!audio_only)
 			{
 				if (phys && toc.tracks[0].type) psx_phys_wait_data();
