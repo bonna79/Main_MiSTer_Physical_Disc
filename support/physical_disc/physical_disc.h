@@ -127,6 +127,7 @@ int physical_disc_read_data2048(int lba, uint8_t *dst);
 int physical_disc_read_subq_window(int lba, int count, uint8_t *raw96);
 int physical_disc_debug_read(int lba, int with_sub, uint8_t *dst); // TEST
 void physical_disc_drop_cache(void); // TEST
+void physical_disc_debug_recover(int step); // TEST
 
 
 

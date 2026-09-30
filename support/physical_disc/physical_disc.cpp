@@ -902,6 +902,51 @@ int physical_disc_debug_read(int lba, int with_sub, uint8_t *dst)
 	return r;
 }
 
+static void debug_dump16(const char *what, int r, const uint8_t *raw)
+{
+	printf("PSX: %-10s r=%d hdr %02X %02X %02X %02X mode %02X data %02X %02X %02X %02X %02X %02X\n", what, r,
+		raw[12], raw[13], raw[14], raw[15], raw[18], raw[24], raw[25], raw[26], raw[27], raw[28], raw[29]);
+}
+
+// TEST: try one way to get good data back from the drive, then read LBA 16
+void physical_disc_debug_recover(int step)
+{
+	static uint8_t raw[ENTRY_SIZE];
+	if (drv.dev_fd < 0) return;
+	memset(raw, 0, sizeof(raw));
+
+	if (step == 0) {
+		// block layer READ(10), 2048-byte sectors, through a second descriptor
+		int fd = open(active_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		int r = -9;
+		if (fd >= 0) {
+			r = (pread(fd, raw + 24, 2048, 16 * 2048) == 2048) ? 0 : -errno;
+			close(fd);
+		}
+		debug_dump16("cooked", r, raw);
+		return;
+	}
+
+	pthread_mutex_lock(&drv.io_lock);
+	const char *what = "?";
+	if (step == 1) {
+		what = "far+16";
+		scsi_read_cd(200000, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+	} else if (step == 2) {
+		what = "speed+16";
+		ioctl(drv.dev_fd, CDROM_SELECT_SPEED, 0);
+	} else if (step == 3) {
+		what = "reopen+16";
+		int fd = open(active_dev, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd >= 0) { close(drv.dev_fd); drv.dev_fd = fd; }
+	}
+	memset(raw, 0, sizeof(raw));
+	int r = scsi_read_cd(16, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+	pthread_mutex_unlock(&drv.io_lock);
+	debug_dump16(what, r, raw);
+	if (step == 2) apply_speed_cap();
+}
+
 // TEST: forget every sector kept in the ring, so the next reads go to the drive
 void physical_disc_drop_cache(void)
 {

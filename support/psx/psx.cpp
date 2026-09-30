@@ -935,7 +935,8 @@ static void psx_phys_wait_data()
 			if (tries) printf("PSX: disc data readable after %lu ms\n", GetTimer(0) - t0);
 			return;
 		}
-		if (tries < 3 || tries % 10 == 0)
+		if (tries >= 3 && tries <= 9 && (tries & 1)) physical_disc_debug_recover((tries - 3) / 2);
+		if (tries < 2 || tries % 10 == 0)
 		{
 			// TEST: what the ring gives, and what the drive gives now
 			static uint8_t raw[2352 + 96];
