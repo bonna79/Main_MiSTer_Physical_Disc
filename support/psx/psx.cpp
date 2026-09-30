@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <unistd.h>
 
 #include "../../file_io.h"
 #include "../physical_disc/physical_disc.h"
@@ -912,6 +913,36 @@ static uint16_t libCryptKey(const char *game_id, int phys, const char *filename,
 	return try_subchannel ? libCryptMaskFromSubchannel(phys, filename) : 0;
 }
 
+// A physical disc can report its TOC before its data sectors are readable,
+// typically right after a core reset (the drive is closed and opened again)
+// and more often with CD-Rs, which take longer to spin up. The game ID,
+// region and LibCrypt key are read from the data, so wait until the ISO
+// volume descriptor can be read (up to 10 s) instead of mounting with an
+// unknown region, which boots the wrong BIOS.
+static void psx_phys_wait_data()
+{
+	uint8_t pvd[2048];
+	unsigned long t0 = GetTimer(0);
+	unsigned long giveup = GetTimer(10000);
+	int tries = 0;
+
+	while (1)
+	{
+		if (!physical_disc_read_data2048(16, pvd) && pvd[0] == 1 && !memcmp(pvd + 1, "CD001", 5))
+		{
+			if (tries) printf("PSX: disc data readable after %lu ms\n", GetTimer(0) - t0);
+			return;
+		}
+		tries++;
+		if (CheckTimer(giveup))
+		{
+			printf("PSX: disc data still not readable after %lu ms\n", GetTimer(0) - t0);
+			return;
+		}
+		usleep(200000);
+	}
+}
+
 int psx_mount_cd(int f_index, int s_index, const char *filename)
 {
 	static char last_dir[1024] = {};
@@ -933,6 +964,7 @@ int psx_mount_cd(int f_index, int s_index, const char *filename)
 			region_t region = region_t::UNKNOWN;
 			if (!audio_only)
 			{
+				if (phys && toc.tracks[0].type) psx_phys_wait_data();
 				game_info = psx_get_game_info();
 				game_id = game_info.game_id;
 				region = psx_get_region();
