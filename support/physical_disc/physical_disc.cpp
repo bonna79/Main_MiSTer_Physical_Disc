@@ -971,6 +971,38 @@ void physical_disc_debug_recover(int step)
 		debug_dump16("spin+16", r, raw);
 		return;
 	}
+	if (step == 3 || step == 4) {
+		// subchannel-only READ CD, like the LibCrypt scan (no main channel data)
+		static uint8_t subs[64 * 96];
+		int base = step == 3 ? 10 : 13950;
+		int rs = scsi_read_raw_subq_block(base, 24, subs);
+		memset(raw, 0, sizeof(raw));
+		int r = scsi_read_cd(16, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+		pthread_mutex_unlock(&drv.io_lock);
+		printf("PSX: sub-only read at %d r=%d\n", base, rs);
+		debug_dump16(step == 3 ? "subq10+16" : "subq13950+16", r, raw);
+		return;
+	}
+	if (step == 5) {
+		// READ CD, user data only (2048 bytes)
+		uint8_t cdb[12] = { 0xBE, 0, 0, 0, 0, 16, 0, 0, 1, 0x10, 0, 0 };
+		int r = debug_sg(cdb, 12, raw + 24, 2048, BG_IO_TIMEOUT_MS);
+		pthread_mutex_unlock(&drv.io_lock);
+		debug_dump16("userdata", r, raw);
+		return;
+	}
+	if (step == 6) {
+		// READ TOC, then the sector again
+		static uint8_t toc[804];
+		uint8_t cdb[10] = { 0x43, 0, 0, 0, 0, 0, 0, 0x03, 0x24, 0 };
+		int rt = debug_sg(cdb, 10, toc, 804, BG_IO_TIMEOUT_MS);
+		memset(raw, 0, sizeof(raw));
+		int r = scsi_read_cd(16, 1, 0xF8, 0, raw, BG_IO_TIMEOUT_MS);
+		pthread_mutex_unlock(&drv.io_lock);
+		printf("PSX: read toc r=%d\n", rt);
+		debug_dump16("toc+16", r, raw);
+		return;
+	}
 	pthread_mutex_unlock(&drv.io_lock);
 }
 
