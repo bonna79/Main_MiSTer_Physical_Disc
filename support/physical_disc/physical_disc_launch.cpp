@@ -669,15 +669,34 @@ int physical_disc_launch_menu_tick(void)
 		return 0;
 	}
 
-	// Video CD: no core can decode MPEG-1, so the disc goes to the optional
-	// HPS player. Skipped entirely when the player is not installed.
-	if (vcd_player_installed() && vcd_disc_detect())
+	// Video CD: goes to the optional HPS player, or with VCD=FPGA to the FPGA
+	// DVD core, which plays Video CDs from the drive itself. Skipped entirely
+	// when neither is configured.
+	const int vcd_fpga = cfg.physical_disc_vcd[0] && !strcasecmp(cfg.physical_disc_vcd, "FPGA");
+	if ((vcd_fpga || vcd_player_installed()) && vcd_disc_detect())
 	{
 		char device[64];
 		snprintf(device, sizeof(device), "%s", physical_disc_device());
 		menu_write_handled(fingerprint);
 		physical_disc_close();
 		menu_detecting = 0;
+
+		if (vcd_fpga)
+		{
+			char path[512];
+			if (find_core_rbf(DVD_FPGA_CORE, path, sizeof(path)))
+			{
+				printf("DISC: Video CD detected, VCD=FPGA, launching %s\n", path);
+				fpga_load_rbf(path);
+				return 1;
+			}
+			printf("DISC: Video CD detected but the FPGA DVD core was not found\n");
+			if (!vcd_player_installed())
+			{
+				Info("FPGA DVD core not found", 5000);
+				return 0;
+			}
+		}
 		return vcd_launch_player(device);
 	}
 

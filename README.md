@@ -215,6 +215,16 @@ Then, with Auto Disc Detection enabled, insert a Video CD while the MiSTer menu 
 
 When `/media/fat/linux/vcd_player` is not present, nothing changes: Video CDs are handled exactly as before.
 
+### Video CD on the FPGA DVD core
+
+The FPGA DVD core can also play Video CDs straight from the drive, with pause and seeking. It needs its own Main, `MiSTer_DVDcss`, set for that core only (`[DVD]` section with `main=MiSTer_DVDcss`). To send Video CDs to it instead of `vcd_player`, add this to your existing `[menu]` section:
+
+```ini
+VCD=FPGA
+```
+
+The latest dated `DVD_<date>.rbf` core is launched. If it is not installed, `vcd_player` is used when present; otherwise a warning is shown. Without a `VCD=` entry, Video CDs go to `vcd_player` as described above.
+
 Audio is sent to the MiSTer audio output through `aplay`. If `aplay` is not available, video plays without sound.
 
 ## Disc Swapping
