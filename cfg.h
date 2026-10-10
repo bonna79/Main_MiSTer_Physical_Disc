@@ -50,7 +50,6 @@ typedef struct {
 	uint8_t megacd_cdda_paced;
 	char physical_disc_audio_cd[32];
 	char physical_disc_dvd[32];
-	char physical_disc_vcd[32];
 	int16_t bootcore_timeout;
 	uint8_t fb_size;
 	uint8_t fb_terminal;

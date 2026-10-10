@@ -81,7 +81,6 @@ static const ini_var_t ini_vars[] =
 	{ "MEGACD_CDDA_PACED", (void*)(&(cfg.megacd_cdda_paced)), UINT8, 0, 1 },
 	{ "AUDIOCD", (void*)(cfg.physical_disc_audio_cd), STRING, 0, sizeof(cfg.physical_disc_audio_cd) - 1 },
 	{ "DVD", (void*)(cfg.physical_disc_dvd), STRING, 0, sizeof(cfg.physical_disc_dvd) - 1 },
-	{ "VCD", (void*)(cfg.physical_disc_vcd), STRING, 0, sizeof(cfg.physical_disc_vcd) - 1 },
 	{ "FONT", (void*)(&(cfg.font)), STRING, 0, sizeof(cfg.font) - 1 },
 	{ "FB_SIZE", (void*)(&(cfg.fb_size)), UINT8, 0, 4 },
 	{ "FB_TERMINAL", (void*)(&(cfg.fb_terminal)), UINT8, 0, 1 },
